@@ -32,10 +32,10 @@ ENV DB_PATH=/app/data/cdk_recharge.db \
     INSTALL_MODE=wizard \
     TRUSTED_PROXIES=127.0.0.1,172.16.0.0/12
 
-VOLUME ["/app/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://127.0.0.1:8080/health || exit 1
 
 CMD ["/app/cdk-recharge"]
+
