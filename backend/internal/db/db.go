@@ -881,8 +881,7 @@ func legacyUUIDCode(planType string, id int64) string {
 	return fmt.Sprintf("%s-%s-%s-%s-%s", hexID[0:8], hexID[8:12], hexID[12:16], hexID[16:20], hexID[20:32])
 }
 
-// SaveCardplatformCDKCode 把完整码写入本站 SQLite（发码 / 回填）。
-// 卡台列表只回 code_prefix，完整码仅本站 DB 可补全。
+// SaveCardplatformCDKCode 把完整码写入本站 SQLite（发码 / 从卡台同步 / 回填）。
 func SaveCardplatformCDKCode(upstreamID int64, code, prefix, plan string, feeMinor int64) error {
 	return SaveCardplatformCDKCodeWithStatus(upstreamID, code, prefix, plan, feeMinor, "unused")
 }
@@ -1095,7 +1094,6 @@ func LookupCardplatformCDKCode(upstreamID int64, prefix string) (string, bool) {
 	return "", false
 }
 
-
 // ---- CDK 备注（本站）----
 
 const maxCDKNoteLen = 200
@@ -1228,8 +1226,6 @@ func MapCardplatformCDKNotes(ids []int64) map[int64]string {
 	}
 	return out
 }
-
-
 
 // ---- 代理失败换码 ----
 

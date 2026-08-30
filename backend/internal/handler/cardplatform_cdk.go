@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -143,8 +144,8 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 	if req.Count < 1 {
 		req.Count = 1
 	}
-	if req.Count > 50 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "count max 50"})
+	if req.Count > cardplatform.MaxIssueCount {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("count max %d", cardplatform.MaxIssueCount)})
 		return
 	}
 
@@ -168,6 +169,20 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 		res, err = cli.IssueCDKs(c.Request.Context(), plan, req.Count, idem)
 	}
 	if err != nil {
+		// 超时/断线时卡台可能已经出码。立刻从卡台列表把完整码捞回本站。
+		if recovered, recErr := cli.SyncUpstreamFullCodes(c.Request.Context(), "unused", plan, 10); recErr == nil && recovered != nil && recovered.Imported > 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"requested":     req.Count,
+				"issued":        recovered.Codes,
+				"count":         len(recovered.Codes),
+				"stored_count":  recovered.Imported,
+				"store_failed":  0,
+				"server_stored": true,
+				"recovered":     true,
+				"msg":           fmt.Sprintf("发码请求未完成，已从卡台找回 %d 张完整码", recovered.Imported),
+			})
+			return
+		}
 		writeCardErr(c, err)
 		return
 	}
@@ -221,6 +236,43 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 		"stored_count":  stored,
 		"store_failed":  storeFailed,
 		"server_stored": true,
+	})
+}
+
+// CardPlatformSyncUpstreamCDKs POST /api/v1/admin/cardplatform/cdks/sync
+// 从卡台列表拉取完整码写入本站。卡台升级后列表会带 code；旧后端只能拿到前缀。
+func CardPlatformSyncUpstreamCDKs(c *gin.Context) {
+	var req struct {
+		Status   string `json:"status"`
+		Plan     string `json:"plan"`
+		MaxPages int    `json:"max_pages"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	cli := cardplatform.NewFromSettings()
+	res, err := cli.SyncUpstreamFullCodes(c.Request.Context(), req.Status, req.Plan, req.MaxPages)
+	if err != nil {
+		writeCardErr(c, err)
+		return
+	}
+	u, _ := c.Get("username")
+	username, _ := u.(string)
+	db.WriteAudit(username, "cardplatform_sync_cdk",
+		fmt.Sprintf("imported=%d prefix_only=%d scanned=%d", res.Imported, res.PrefixOnly, res.Scanned), c.ClientIP())
+	msg := fmt.Sprintf("从卡台同步：新入库 %d 张，扫描 %d 张", res.Imported, res.Scanned)
+	if res.NeedCardplatformUpgrade {
+		msg = "卡台列表仍只返回前缀。请先升级卡台后端后再同步。"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"imported":                  res.Imported,
+		"updated":                   res.Updated,
+		"prefix_only":               res.PrefixOnly,
+		"scanned":                   res.Scanned,
+		"pages":                     res.Pages,
+		"upstream_total":            res.UpstreamTotal,
+		"need_cardplatform_upgrade": res.NeedCardplatformUpgrade,
+		"codes":                     res.Codes,
+		"full_code_in_store":        db.CountCardplatformCDKCodes(),
+		"msg":                       msg,
 	})
 }
 
@@ -572,6 +624,12 @@ func CardPlatformListCDKs(c *gin.Context) {
 	withFull := 0
 	for _, it := range res.List {
 		full, ok := db.LookupCardplatformCDKCode(it.ID, it.CodePrefix)
+		if !ok {
+			if up := it.FullCodeText(); up != "" {
+				full, ok = up, true
+				_ = db.SaveCardplatformCDKCodeWithStatus(it.ID, up, it.CodePrefix, it.Plan, it.FeeAmountMinor, it.Status)
+			}
+		}
 		row := rowOut{
 			ID: it.ID, Plan: it.Plan, CodePrefix: it.CodePrefix, Status: it.Status,
 			FeeAmountMinor: it.FeeAmountMinor, CreatedAt: it.CreatedAt,

@@ -103,7 +103,7 @@ func setupRoutes(r *gin.Engine) {
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status": "ok",
+			"status":  "ok",
 			"message": "Recharge System is running",
 		})
 	})
@@ -189,6 +189,7 @@ func setupRoutes(r *gin.Engine) {
 			admin.GET("/cardplatform/cdks", handler.CardPlatformListCDKs)
 			admin.GET("/cardplatform/cdks/stored", handler.CardPlatformListStoredCDKs)
 			admin.POST("/cardplatform/cdks", handler.CardPlatformIssueCDKs)
+			admin.POST("/cardplatform/cdks/sync", handler.CardPlatformSyncUpstreamCDKs)
 			admin.POST("/cardplatform/cdks/store", handler.CardPlatformStoreCDKCodes)
 			admin.POST("/cardplatform/cdks/batch-disable", handler.CardPlatformBatchDisableCDKs)
 			admin.POST("/cardplatform/cdks/batch-enable", handler.CardPlatformBatchEnableCDKs)
