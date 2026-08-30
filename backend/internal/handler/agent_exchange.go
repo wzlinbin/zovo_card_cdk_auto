@@ -227,32 +227,19 @@ func PublicAgentCDKExchange(c *gin.Context) {
 
 	if !orderLooksUnpaid(status, stage, finalMinor, events) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":         "不符合换码条件（需充值失败且未扣款）",
-			"order_status":  status,
-			"order_stage":   stage,
-			"final_amount":  finalMinor,
-			"local_status":  localStatus,
+			"error":        "不符合换码条件（需充值失败且未扣款）",
+			"order_status": status,
+			"order_stage":  stage,
+			"final_amount": finalMinor,
+			"local_status": localStatus,
 		})
 		return
 	}
 
-	// 发一张同套餐新码（带本站选卡偏好）
+	// 发一张同套餐新码（带本站选卡偏好；跳过未启动卡头）
 	var issuePrefs []cardplatform.IssueCardPref
-	policy := loadSiteRedeemPolicy()
-	if issuer, segType, segKey := resolveIssueCardPref(policy); segKey != "" || issuer != "" {
-		issuePrefs = append(issuePrefs, cardplatform.IssueCardPref{Issuer: issuer, SegmentType: segType, SegmentKey: segKey})
-	} else if rules, err := db.GetCardSelectionRules(); err == nil {
-		for _, r := range rules {
-			if !r.Enabled || strings.TrimSpace(r.PlanKey) == "" {
-				continue
-			}
-			iss := strings.ToLower(strings.TrimSpace(r.Channel))
-			if iss == "" {
-				iss = "one"
-			}
-			issuePrefs = append(issuePrefs, cardplatform.IssueCardPref{Issuer: iss, SegmentType: "product", SegmentKey: strings.TrimSpace(r.PlanKey)})
-			break
-		}
+	if pref, ok := issuePrefFromSite(); ok {
+		issuePrefs = append(issuePrefs, pref)
 	}
 
 	idem := "agent-swap-" + codeHash[:16] + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -292,15 +279,15 @@ func PublicAgentCDKExchange(c *gin.Context) {
 		ip)
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok": true,
-		"plan": plan,
-		"old_cdk_id": upstreamID,
+		"ok":              true,
+		"plan":            plan,
+		"old_cdk_id":      upstreamID,
 		"old_code_prefix": prefix,
-		"new_cdk_id": newIt.ID,
-		"new_code": newCode,
+		"new_cdk_id":      newIt.ID,
+		"new_code":        newCode,
 		"new_code_prefix": newPrefix,
-		"order_status": status,
-		"message": "已换发全新卡密，请妥善保存（仅显示一次）",
+		"order_status":    status,
+		"message":         "已换发全新卡密，请妥善保存（仅显示一次）",
 	})
 }
 
@@ -389,4 +376,3 @@ func anyToInt64(v any) int64 {
 		return 0
 	}
 }
-

@@ -45,7 +45,7 @@ func defaultSiteRedeemPolicy() SiteRedeemPolicy {
 		AutoOpenWhenNoCard:    true,
 		MaxNewAccountsPerCard: 4,
 		MaxCardsPerTask:       3,
-		FailCooldownHours:      24,
+		FailCooldownHours:     24,
 		IssuingArea:           "United States",
 		HolderFirst:           "GPT",
 		HolderLast:            "Direct",
@@ -91,50 +91,4 @@ func saveSiteRedeemPolicy(p SiteRedeemPolicy) error {
 		return err
 	}
 	return db.SetSetting(siteRedeemPolicyKey, string(b))
-}
-
-// resolveIssueCardPref 发码偏好：策略指定产品 > 选卡配置首条启用规则。
-func resolveIssueCardPref(policy SiteRedeemPolicy) (issuer, segmentType, segmentKey string) {
-	if !policy.Enabled {
-		return "", "", ""
-	}
-	segmentKey = strings.TrimSpace(policy.ProductCode)
-	issuer = strings.ToLower(strings.TrimSpace(policy.Issuer))
-	if segmentKey == "" {
-		rules, err := db.GetCardSelectionRules()
-		if err == nil {
-			for _, r := range rules {
-				if !r.Enabled {
-					continue
-				}
-				pk := strings.TrimSpace(r.PlanKey)
-				if pk == "" {
-					continue
-				}
-				segmentKey = pk
-				if ch := strings.TrimSpace(r.Channel); ch != "" {
-					issuer = strings.ToLower(ch)
-				}
-				break
-			}
-		}
-	}
-	if segmentKey == "" {
-		return issuer, "", ""
-	}
-	// 从产品缓存补渠道
-	if issuer == "" {
-		if prods, err := db.GetCardProducts(); err == nil {
-			for _, pr := range prods {
-				if strings.EqualFold(pr.ProductCode, segmentKey) {
-					issuer = strings.ToLower(strings.TrimSpace(pr.Issuer))
-					break
-				}
-			}
-		}
-	}
-	if issuer == "" {
-		issuer = "one"
-	}
-	return issuer, "product", segmentKey
 }

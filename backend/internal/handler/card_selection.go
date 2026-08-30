@@ -12,42 +12,53 @@ import (
 	"github.com/tuzi/cdk-recharge-system/internal/plansync"
 )
 
+type cardSelectionRuleView struct {
+	db.CardSelectionRule
+	Online        bool    `json:"online"`
+	SyncedAt      string  `json:"synced_at"`
+	ServiceFeeUSD float64 `json:"service_fee_usd"`
+}
+
+func cardSelectionRulesPayload() (gin.H, error) {
+	rules, err := db.GetCardSelectionRules()
+	if err != nil {
+		return nil, err
+	}
+	products, _ := db.GetCardProducts()
+	prodByCode := map[string]db.CardProductCache{}
+	for _, p := range products {
+		prodByCode[strings.ToUpper(strings.TrimSpace(p.ProductCode))] = p
+	}
+	out := make([]cardSelectionRuleView, 0, len(rules))
+	for _, r := range rules {
+		rv := cardSelectionRuleView{CardSelectionRule: r, Online: len(products) == 0}
+		if p, ok := prodByCode[strings.ToUpper(strings.TrimSpace(r.PlanKey))]; ok {
+			rv.Online = p.Enabled && strings.TrimSpace(p.SuspendedAt) == ""
+			rv.SyncedAt = p.SyncedAt
+		}
+		out = append(out, rv)
+	}
+	lastSync := latestProductSyncTime(products)
+	if lastSync == "" {
+		statuses, _ := db.GetPlanStatusCache()
+		lastSync = latestSyncTime(statuses)
+	}
+	return gin.H{
+		"rules":     out,
+		"last_sync": lastSync,
+		"next_sync": nextSyncIn(lastSync),
+	}, nil
+}
+
 // AdminGetCardSelectionRules GET /api/v1/admin/card-selection/rules
 // 返回选卡优先级规则列表（含实时产品在线状态）
 func AdminGetCardSelectionRules(c *gin.Context) {
-	rules, err := db.GetCardSelectionRules()
+	payload, err := cardSelectionRulesPayload()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	statusMap, _ := db.GetPlanStatusCacheMap()
-
-	type ruleView struct {
-		db.CardSelectionRule
-		Online        bool    `json:"online"`
-		SyncedAt      string  `json:"synced_at"`
-		ServiceFeeUSD float64 `json:"service_fee_usd"`
-	}
-
-	out := make([]ruleView, 0, len(rules))
-	for _, r := range rules {
-		rv := ruleView{CardSelectionRule: r, Online: true}
-		if ps, ok := statusMap[r.PlanKey]; ok {
-			rv.Online = ps.Online
-			rv.SyncedAt = ps.SyncedAt
-			rv.ServiceFeeUSD = ps.ServiceFeeUSD
-		}
-		out = append(out, rv)
-	}
-
-	statuses, _ := db.GetPlanStatusCache()
-	lastSync := latestSyncTime(statuses)
-
-	c.JSON(http.StatusOK, gin.H{
-		"rules":     out,
-		"last_sync": lastSync,
-		"next_sync": nextSyncIn(lastSync),
-	})
+	c.JSON(http.StatusOK, payload)
 }
 
 // AdminPutCardSelectionRules PUT /api/v1/admin/card-selection/rules
@@ -77,7 +88,18 @@ func AdminPutCardSelectionRules(c *gin.Context) {
 		return
 	}
 	auditAdmin(c, "update_card_selection_rules", fmt.Sprintf("count=%d", len(body.Rules)))
-	AdminGetCardSelectionRules(c)
+	syncNote := ""
+	if err := SyncOwnerDirectCardRules(c.Request.Context()); err != nil {
+		syncNote = err.Error()
+	}
+	payload, err := cardSelectionRulesPayload()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	payload["cardplatform_ok"] = syncNote == ""
+	payload["cardplatform_err"] = syncNote
+	c.JSON(http.StatusOK, payload)
 }
 
 // AdminGetPlanStatus GET /api/v1/admin/card-selection/plan-status
@@ -171,7 +193,7 @@ func AdminGetSiteRedeemPolicy(c *gin.Context) {
 		"resolved_pref": gin.H{
 			"issuer": issuer, "segment_type": segType, "segment_key": segKey,
 		},
-		"note": "启用后：发码写入 preferred 产品；兑换请求注入 no_auto_card_switch。一卡几付硬限由卡台账户容量策略执行。",
+		"note": "选卡优先级保存后会同步到卡台所有者规则。兑换有规则即 strict，不再被卡台 537872/星链级联盖过。未启动卡头自动跳过。",
 	})
 }
 
@@ -187,5 +209,18 @@ func AdminPutSiteRedeemPolicy(c *gin.Context) {
 		return
 	}
 	auditAdmin(c, "update_site_redeem_policy", fmt.Sprintf("enabled=%v no_switch=%v product=%s", p.Enabled, p.NoAutoCardSwitch, p.ProductCode))
-	AdminGetSiteRedeemPolicy(c)
+	syncNote := ""
+	if err := SyncOwnerDirectCardRules(c.Request.Context()); err != nil {
+		syncNote = err.Error()
+	}
+	issuer, segType, segKey := resolveIssueCardPref(p)
+	c.JSON(http.StatusOK, gin.H{
+		"policy": p,
+		"resolved_pref": gin.H{
+			"issuer": issuer, "segment_type": segType, "segment_key": segKey,
+		},
+		"cardplatform_ok":  syncNote == "",
+		"cardplatform_err": syncNote,
+		"note":             "保存后会把选卡优先级同步到卡台所有者规则（strict_select）。未启动的卡头会被跳过。",
+	})
 }

@@ -155,30 +155,10 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 		_, _ = rand.Read(b)
 		idem = "cdk-issue-" + hex.EncodeToString(b)
 	}
-	// 本站策略 / 选卡配置 → 发码偏好（让选卡配置真正生效）
+	// 本站选卡配置 → 发码偏好（跳过未启动卡头；ch1 等历史写法会归一成 one）
 	var issuePrefs []cardplatform.IssueCardPref
-	policy := loadSiteRedeemPolicy()
-	if issuer, segType, segKey := resolveIssueCardPref(policy); segKey != "" || issuer != "" {
-		issuePrefs = append(issuePrefs, cardplatform.IssueCardPref{
-			Issuer: issuer, SegmentType: segType, SegmentKey: segKey,
-		})
-	} else {
-		// 未启用策略时：仍取选卡配置首条，让「选卡配置」页面保存后能影响发码
-		if rules, err := db.GetCardSelectionRules(); err == nil {
-			for _, r := range rules {
-				if !r.Enabled || strings.TrimSpace(r.PlanKey) == "" {
-					continue
-				}
-				iss := strings.ToLower(strings.TrimSpace(r.Channel))
-				if iss == "" {
-					iss = "one"
-				}
-				issuePrefs = append(issuePrefs, cardplatform.IssueCardPref{
-					Issuer: iss, SegmentType: "product", SegmentKey: strings.TrimSpace(r.PlanKey),
-				})
-				break
-			}
-		}
+	if pref, ok := issuePrefFromSite(); ok {
+		issuePrefs = append(issuePrefs, pref)
 	}
 	var res *cardplatform.IssueCDKResult
 	var err error
@@ -947,17 +927,8 @@ func PublicCDKRedeem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	// 本站策略：启用时默认向卡台声明 no_auto_card_switch（不依赖 ACC 换卡策略）
-	policy := loadSiteRedeemPolicy()
-	if policy.Enabled {
-		if _, exists := body["no_auto_card_switch"]; !exists {
-			body["no_auto_card_switch"] = policy.NoAutoCardSwitch
-		}
-		// CDK 严格按本站选卡配置：卡台默认级联(537872/星链)只给卡台直充用户,不盖过 CDK 偏好。
-		if _, exists := body["strict_card_preference"]; !exists {
-			body["strict_card_preference"] = policy.StrictCardPreference
-		}
-	}
+	// 有选卡配置就向卡台声明 strict，避免被卡台自己的 537872/星链级联盖过。
+	injectRedeemCardPolicy(body)
 	// 本站坏卡黑名单 → 本单排除这些卡：CDK 走 CDK 自己的选卡规则。实时读黑名单、纯选卡维度
 	// 排除,卡台不冻结这些卡(卡台直充用户依旧可用)。拉黑即时生效,无需固化/对账。
 	if _, exists := body["exclude_card_ids"]; !exists {
