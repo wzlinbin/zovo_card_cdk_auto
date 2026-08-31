@@ -749,48 +749,68 @@ VIP 達標後自動開放，不需要管理員再寫入 `gpt_direct_enabled`。�
 | `pro_5x` | Pro 5x | **5 U** | 以預檢報價為準 |
 | `pro_20x` | Pro 20x | **10 U** | 以預檢報價為準 |
 
-服務費在價格配置中以美元最小單位返回：`100`、`500`、`1000`。以 `GET /gpt-direct/plans` 返回的 `version` 和 `enabled` 為準；套餐可能被管理員臨時暫停。價格配置版本變化後，創建訂單應重新預檢並帶最新 `pricing_version`。
+服務費在價格配置中以美元最小單位返回：`100`、`500`、`1000`。以 `GET /gpt-direct/plans` 的實時返回為準。
+
+**能不能買是三個開關，不是同一個狀態。** 沒有 `purchased` 欄位，文件和回應裡的名字是 **`purchasable`**。
+`plans[<key>].enabled === true` 只表示 ACC 認這個檔，**不等於現在能買、能發碼**。
+
+| 欄位 | 誰管 | 含義 |
+| --- | --- | --- |
+| 該檔是否出現在 `registry` | 卡台上架 | 沒上架的檔不會出現在 `registry` |
+| `registry[].purchasable` | 卡台註冊表 | **現在能不能買**。`false` = 仍展示，灰成「即將上線」，下單/發 CDK 會被拒 |
+| `plans[<acc_plan_key>].enabled` | ACC 執行層 | 兌換/履約時上游認不認。對 `plans` 要用 `registry[].acc_plan_key`（Claude / Grok 帶前綴） |
+
+能賣當且僅當：`registry` 有該檔 **且** `purchasable===true` **且** `plans[acc_plan_key].enabled===true`。
+`enabled=true` 且 `purchasable=false` = 上架了、ACC 也開著，卡台還沒放賣。不要發碼。
+
+價格配置版本變化後，創建訂單應重新預檢並帶最新 `pricing_version`。
 
 #### 6.16.2 獲取套餐和實時配置
 
-`GET /gpt-direct/plans`
+`GET /gpt-direct/plans`（可選 `?product=gpt|claude|grok`）
 
-**響應**
+**響應**（節選。判斷能不能買見上一節三個開關）
 ```json
 {
   "code": 0,
   "msg": "ok",
   "data": {
-    "version": 2,
+    "version": 214,
     "plans": {
       "plus": {
         "key": "plus",
         "label": "Plus",
         "currency": "PHP",
         "enabled": true,
-        "serviceFeeUsdMinor": 100,
+        "serviceFeeUsdMinor": 15,
         "expectedAmountMinor": 98214,
         "minAmountMinor": 90000,
         "maxAmountMinor": 110000
-      },
-      "pro_5x": {
-        "key": "pro_5x",
-        "label": "Pro 5x",
-        "currency": "PHP",
-        "enabled": true,
-        "serviceFeeUsdMinor": 500
-      },
-      "pro_20x": {
-        "key": "pro_20x",
-        "label": "Pro 20x",
-        "currency": "PHP",
-        "enabled": true,
-        "serviceFeeUsdMinor": 1000
       }
-    }
+    },
+    "registry": [
+      {
+        "key": "plus",
+        "product": "gpt",
+        "acc_plan_key": "plus",
+        "label": "Plus",
+        "funding": "bin_snapshot",
+        "checkout_currency": "PHP",
+        "checkout_amount_minor": 98214,
+        "service_fee_usd_minor": 15,
+        "purchasable": true,
+        "is_credit": false,
+        "requires_active_subscription": false,
+        "tier": 1,
+        "sort_order": 20
+      }
+    ]
   }
 }
 ```
+
+沒有 `registry[].purchased`。可購買欄位是 **`purchasable`**。
+`plans` 裡可能同時有 `enabled=true` 的檔，但對應 `registry` 行 `purchasable=false`——那一檔現在不能買。
 
 `expectedAmountMinor`、`minAmountMinor`、`maxAmountMinor` 是配置參考範圍，不是訂單最終扣款；訂單以預檢返回的 `quotes[plan]` 為準。
 

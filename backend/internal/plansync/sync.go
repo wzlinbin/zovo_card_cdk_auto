@@ -4,6 +4,7 @@ package plansync
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/tuzi/cdk-recharge-system/internal/cardplatform"
@@ -81,11 +82,16 @@ func doSync(ctx context.Context) (SyncResult, error) {
 		}
 	}
 
-	// 2. 同步实体产品（product_code + BIN + enabled）
-	// 卡台 /products 只返回当前可开（enabled=true）的产品；下架产品不会再出现。
+	// 2. 同步实体产品。优先 /gpt-direct/card-products（含未启动/已下架），
+	// 老卡台没有该接口时回退 /products（只含可开，列表外标下线）。
+	if n, err := syncDirectCardProducts(ctx, cli); err == nil {
+		res.Products = n
+		return res, nil
+	} else {
+		log.Printf("[plan-sync] GetDirectCardProducts fallback to /products: %v", err)
+	}
 	products, err := cli.GetProducts(ctx)
 	if err != nil {
-		// 产品接口失败不阻断套餐同步结果，也绝不把全表标下线（避免短暂 5xx 误杀）
 		log.Printf("[plan-sync] GetProducts error: %v", err)
 		return res, nil
 	}
@@ -95,7 +101,6 @@ func doSync(ctx context.Context) (SyncResult, error) {
 		if code == "" {
 			continue
 		}
-		// OpenAPI /products 只返回当前可开卡产品 → 列表内一律视为在线
 		present[code] = true
 		cp := db.CardProductCache{
 			ProductCode: code,
@@ -123,4 +128,45 @@ func doSync(ctx context.Context) (SyncResult, error) {
 		log.Printf("[plan-sync] marked %d products offline (not in openable list)", off)
 	}
 	return res, nil
+}
+
+func syncDirectCardProducts(ctx context.Context, cli *cardplatform.Client) (int, error) {
+	items, err := cli.GetDirectCardProducts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	present := make(map[string]bool, len(items))
+	n := 0
+	for _, p := range items {
+		code := strings.TrimSpace(p.ProductCode)
+		if code == "" {
+			continue
+		}
+		present[code] = true
+		suspendedAt := ""
+		if p.Suspended && strings.TrimSpace(p.SuspendReason) != "" {
+			suspendedAt = p.SuspendReason
+		} else if p.Suspended {
+			suspendedAt = "suspended"
+		}
+		cp := db.CardProductCache{
+			ProductCode: code,
+			Issuer:      p.Issuer,
+			BIN:         p.BIN,
+			Description: p.Label,
+			Enabled:     p.Usable,
+			SuspendedAt: suspendedAt,
+		}
+		if err := db.UpsertCardProduct(cp); err != nil {
+			log.Printf("[plan-sync] upsert direct product %s: %v", code, err)
+			continue
+		}
+		n++
+	}
+	if off, err := db.MarkCardProductsOfflineExcept(present); err != nil {
+		log.Printf("[plan-sync] mark offline: %v", err)
+	} else if off > 0 {
+		log.Printf("[plan-sync] marked %d products offline (not in card-products)", off)
+	}
+	return n, nil
 }

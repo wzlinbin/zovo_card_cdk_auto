@@ -67,12 +67,14 @@
         <div class="flex flex-wrap items-center gap-3">
           <span class="text-sm text-muted">数量</span>
           <el-button size="small" :disabled="form.count <= 1" @click="form.count = Math.max(1, form.count - 1)">−</el-button>
-          <input v-model.number="form.count" type="number" min="1" max="50" class="input !w-16 text-center mono" />
-          <el-button size="small" :disabled="form.count >= 50" @click="form.count = Math.min(50, form.count + 1)">+</el-button>
+          <input v-model.number="form.count" type="number" min="1" :max="ISSUE_MAX" class="input !w-20 text-center mono" />
+          <el-button size="small" :disabled="form.count >= ISSUE_MAX" @click="form.count = Math.min(ISSUE_MAX, form.count + 1)">+</el-button>
           <el-button-group>
             <el-button size="small" @click="form.count = 1">1</el-button>
-            <el-button size="small" @click="form.count = 5">5</el-button>
             <el-button size="small" @click="form.count = 10">10</el-button>
+            <el-button size="small" @click="form.count = 50">50</el-button>
+            <el-button size="small" @click="form.count = 100">100</el-button>
+            <el-button size="small" @click="form.count = ISSUE_MAX">200</el-button>
           </el-button-group>
           <el-checkbox v-model="form.funding_confirmed">确认承担兑换资金</el-checkbox>
           <el-button type="primary" :loading="issuing" :disabled="!canIssue" @click="issue">
@@ -138,6 +140,7 @@
         </el-select>
         <el-button type="primary" :loading="loadingList" @click="searchList">查询</el-button>
         <el-button :loading="loadingList" @click="loadList">刷新</el-button>
+        <el-button :loading="syncingUpstream" @click="syncFromCardplatform">从卡台同步完整码</el-button>
         <span class="flex-1"></span>
         <el-dropdown trigger="click" @command="onCopyCommand">
           <el-button size="small">
@@ -181,7 +184,8 @@
               <el-dropdown-item command="enable" :disabled="!selectedEnableableIds.length">
                 解除禁用 ({{ selectedEnableableIds.length }})
               </el-dropdown-item>
-              <el-dropdown-item divided command="syncCache">同步本机缓存</el-dropdown-item>
+              <el-dropdown-item divided command="syncUpstream">从卡台同步完整码</el-dropdown-item>
+              <el-dropdown-item command="syncCache">同步本机缓存</el-dropdown-item>
               <el-dropdown-item command="clearSel" :disabled="!selectedRows.length">清空选择</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -204,7 +208,7 @@
 
       <div v-if="listError" class="alert alert-error">{{ listError }}</div>
       <div v-if="listMode === 'stored' && !loadingList && !displayRows.length" class="alert alert-info">
-        本站尚未存入完整码。展开上方「购买并生成」发码，或在批量操作里同步本机缓存。
+        本站尚未存入完整码。点「从卡台同步完整码」，或展开上方购买发码。
       </div>
 
       <el-table
@@ -306,6 +310,7 @@ const RECENT_KEY = 'cdk_recent_issued_v1'
 const CODE_CACHE_KEY = 'cdk_full_code_cache_v1'
 /** 卡台完整码形如 GPTD-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxx（约 43 字符） */
 const FULL_CODE_MIN_LEN = 20
+const ISSUE_MAX = 200
 /** 代理换码隐藏页（完整 URL，便于复制发给代理） */
 const agentSwapUrl =
   typeof window !== 'undefined' ? `${window.location.origin}/partner/swap` : '/partner/swap'
@@ -315,6 +320,7 @@ type CodeCacheEntry = { code: string; plan?: string; prefix?: string; at?: numbe
 const codeCache = ref<Record<string, CodeCacheEntry>>({})
 const storeStats = reactive({ fullOnPage: null as number | null, fullInStore: null as number | null })
 const syncingCache = ref(false)
+const syncingUpstream = ref(false)
 const exportingAll = ref(false)
 const disabling = ref(false)
 const noting = ref(false)
@@ -390,7 +396,7 @@ const planCards = computed(() =>
 )
 
 const canIssue = computed(() =>
-  configured.value && form.funding_confirmed && form.count >= 1 && form.count <= 50 && !issuing.value &&
+  configured.value && form.funding_confirmed && form.count >= 1 && form.count <= ISSUE_MAX && !issuing.value &&
   // 选中的档位必须在可卖清单里：默认值 plus 也可能被卡台/ACC 关掉，
   // 不判的话按钮是亮的、点下去被后端 400 挡回来。
   planKeys.value.includes(form.plan),
@@ -491,6 +497,7 @@ function onBatchCommand(cmd: string) {
   if (cmd === 'clearNote') return batchClearNoteSelected()
   if (cmd === 'disable') return batchDisableSelected()
   if (cmd === 'enable') return batchEnableSelected()
+  if (cmd === 'syncUpstream') return syncFromCardplatform()
   if (cmd === 'syncCache') return syncLocalCacheToServer()
   if (cmd === 'clearSel') return clearSelection()
 }
@@ -867,7 +874,7 @@ const estimatedTotal = computed(() => {
   // 按钮上会显示「购买 3 张 · $NaN」。宁可显示「—」也不要给代理看一个假数字。
   const unit = Number(feeOf(form.plan))
   if (!Number.isFinite(unit)) return '—'
-  const c = Math.max(1, Math.min(50, form.count || 1))
+  const c = Math.max(1, Math.min(ISSUE_MAX, form.count || 1))
   return (unit * c).toFixed(2)
 })
 
@@ -1014,6 +1021,34 @@ async function syncLocalCacheToServer(opts?: { quiet?: boolean }) {
   }
 }
 
+async function syncFromCardplatform(opts?: { quiet?: boolean; plan?: string; status?: string }) {
+  const quiet = !!opts?.quiet
+  syncingUpstream.value = true
+  try {
+    const r = await authFetch('/api/v1/admin/cardplatform/cdks/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        plan: opts?.plan || listPlan.value || '',
+        status: opts?.status || listStatus.value || '',
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) {
+      if (!quiet) dialog.toast(d.error || d.msg || '同步失败', 'err')
+      return d
+    }
+    const codes = Array.isArray(d.codes) ? d.codes : []
+    if (codes.length) rememberIssued(codes, opts?.plan || form.plan)
+    if (!quiet) {
+      dialog.toast(d.msg || `已从卡台同步 ${d.imported ?? 0} 张`, d.need_cardplatform_upgrade ? 'warn' : 'ok')
+    }
+    await loadList()
+    return d
+  } finally {
+    syncingUpstream.value = false
+  }
+}
+
 function persistRecent(codes: string[], plan: string) {
   const payload = { codes, plan, at: Date.now() }
   try {
@@ -1073,7 +1108,7 @@ async function copyRowCode(row: any) {
   }
   const isFull = isFullCode(code)
   if (!isFull) {
-    dialog.toast('仅有前缀：本站未存该码完整串。请在本页重新发码，或点「同步本机缓存到服务器」。', 'warn')
+    dialog.toast('仅有前缀：点「从卡台同步完整码」拉回，不要重新购买。', 'warn')
   }
   const ok = await copyToClipboard(code)
   if (!ok) {
@@ -1144,6 +1179,17 @@ async function issue() {
     })
     const d = await r.json().catch(() => ({}))
     if (!r.ok) {
+      const recovered = await syncFromCardplatform({ quiet: true, plan: form.plan, status: 'unused' })
+      const recCodes = Array.isArray(recovered?.codes) ? recovered.codes.map(extractFullCode).filter(Boolean) : []
+      if (recCodes.length) {
+        recentCodes.value = recCodes
+        persistRecent(recCodes, form.plan)
+        issueOk.value = `发码请求未完成，已从卡台找回 ${recCodes.length} 张完整码。不要再点购买。`
+        dialog.toast(issueOk.value, 'warn')
+        await loadList()
+        await loadMeta()
+        return
+      }
       const msg = d.error || d.msg || '发码失败'
       issueError.value = msg
       if (String(msg).includes('403') || d.code === 403) {
@@ -1173,8 +1219,11 @@ async function issue() {
       okMsg += ` · 服务器已存 ${storedN}`
       if (storeFail > 0) okMsg += `（${storeFail} 条落库失败）`
     }
+    if (d.recovered) {
+      okMsg = d.msg || `已从卡台找回 ${codes.length} 张完整码`
+    }
     issueOk.value = okMsg
-    dialog.toast(issueOk.value, shortOnes.length || storeFail ? 'warn' : 'ok')
+    dialog.toast(issueOk.value, shortOnes.length || storeFail || d.recovered ? 'warn' : 'ok')
     // 发码成功后自动尝试复制全部，减少漏拷
     await copyAll(false)
     form.funding_confirmed = false

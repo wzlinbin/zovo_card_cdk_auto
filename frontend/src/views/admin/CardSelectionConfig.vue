@@ -125,8 +125,8 @@
         <div>
           <h2 class="text-xl font-bold text-ink">本站可控策略</h2>
           <p class="text-sm text-muted mt-1">
-            不依赖 ACC 换卡策略：启用后发码写入选卡偏好，兑换向卡台声明
-            <code class="mono text-xs">no_auto_card_switch</code>（失败不自动换卡，由本站/卡台容量策略控卡）
+            选卡优先级保存后会同步到卡台所有者规则（<code class="mono text-xs">select_priority</code> + <code class="mono text-xs">strict_select</code>）。
+            未启动的卡头自动跳过。兑换有规则即声明 <code class="mono text-xs">strict_card_preference</code>，不再被卡台 537872/星链级联盖过。
           </p>
           <p v-if="resolvedPref.segment_key" class="text-xs text-subtle mt-1">
             当前生效偏好：{{ resolvedPref.issuer || '—' }} / {{ resolvedPref.segment_key }}
@@ -182,7 +182,7 @@
       </div>
       <p class="text-xs text-subtle mt-3">
         说明：一卡几付的硬上限由<strong>卡台账户容量</strong>执行；本站负责「用哪张产品偏好」与「是否允许卡台自动换卡」。
-        保存选卡优先级后，新发码会写入 preferred；已发出的旧码仍按发码时偏好（失效则回落卡台默认）。
+        保存选卡优先级后：1）同步到卡台所有者用卡规则（旧码兑换也走这份优先级）；2）新发码写入 preferred。未启动卡头不会被选中。
       </p>
     </div>
 
@@ -511,7 +511,11 @@ async function saveRules() {
     rules.value = (d.rules || []).map((item: any) => ({
       ...item, _id: ++_idSeq, enabled: item.enabled !== false,
     }))
-    dialog.toast('已保存', 'ok')
+    if (d.cardplatform_ok === false) {
+      dialog.toast('已保存本站规则，但同步卡台失败：' + (d.cardplatform_err || 'unknown'), 'warn')
+    } else {
+      dialog.toast('已保存并同步到卡台', 'ok')
+    }
   } finally {
     saving.value = false
   }
@@ -577,7 +581,11 @@ async function savePolicy() {
     resolvedPref.issuer = rp.issuer || ''
     resolvedPref.segment_type = rp.segment_type || ''
     resolvedPref.segment_key = rp.segment_key || ''
-    dialog.toast('策略已保存（新发码/新兑换生效）', 'ok')
+    if (d.cardplatform_ok === false) {
+      dialog.toast('策略已保存，但同步卡台失败：' + (d.cardplatform_err || 'unknown'), 'warn')
+    } else {
+      dialog.toast('策略已保存并同步到卡台', 'ok')
+    }
   } finally {
     policySaving.value = false
   }
