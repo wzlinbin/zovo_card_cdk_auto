@@ -78,6 +78,9 @@ func CardPlatformPlans(c *gin.Context) {
 		"base":    cardplatform.LoadConfig().SiteBase,
 		// 展示顺序/文案/性质仍以卡台注册表为准，前端不维护档位清单
 		"registry": sellable,
+		// 付款地区同理：卡台下发什么就能选什么，本站不写死。
+		// 老版本卡台没有这个字段 → 空数组 → 界面只剩「默认(PH)」，即本功能上线前的行为。
+		"payment_regions": plans.PaymentRegions,
 	})
 }
 
@@ -99,6 +102,11 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 		Plan             string `json:"plan"`
 		Count            int    `json:"count"`
 		FundingConfirmed bool   `json:"funding_confirmed"`
+		// PaymentCountry 这批码兑换时用哪个地区付款。空 = 菲律宾（存量行为）。
+		// 不在本站校验取值：卡台的 payment_regions 是唯一真相源，
+		// 这里再校验一遍就等于多了一份会过期的清单。发了不支持的地区，
+		// 卡台会在发码这一步直接拒，错误原样透回给操作者。
+		PaymentCountry string `json:"payment_country"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -158,7 +166,14 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 	}
 	// 本站选卡配置 → 发码偏好（跳过未启动卡头；ch1 等历史写法会归一成 one）
 	var issuePrefs []cardplatform.IssueCardPref
-	if pref, ok := issuePrefFromSite(); ok {
+	pref, hasSitePref := issuePrefFromSite()
+	payCountry := strings.ToUpper(strings.TrimSpace(req.PaymentCountry))
+	// ★没有本站选卡配置时也要把地区带上★：地区和选卡偏好是两件独立的事，
+	// 用同一个 pref 结构只是顺路。写成「有选卡配置才传 pref」会让
+	// 「没配选卡、但指定了智利」这种组合静默退回菲律宾——码发出去了，
+	// 区却不对，而且一切正常无报错，直到用户兑换时按 PHP 扣了款才看得出来。
+	if hasSitePref || payCountry != "" {
+		pref.PaymentCountry = payCountry
 		issuePrefs = append(issuePrefs, pref)
 	}
 	var res *cardplatform.IssueCDKResult
@@ -191,6 +206,11 @@ func CardPlatformIssueCDKs(c *gin.Context) {
 	prefNote := ""
 	if len(issuePrefs) > 0 {
 		prefNote = " pref=" + issuePrefs[0].Issuer + "/" + issuePrefs[0].SegmentKey
+	}
+	// 地区进审计：这批码按哪个区发的，事后只能从这里查——
+	// 码本身在本站只存码文，地区留在卡台那边。
+	if payCountry != "" {
+		prefNote += " region=" + payCountry
 	}
 	db.WriteAudit(username, "cardplatform_issue_cdk", "plan="+plan+" count="+strconv.Itoa(req.Count)+prefNote, c.ClientIP())
 	// 规范化：保证前端总能拿到完整 code 字段；绝不把 code_prefix 填进 code
@@ -1116,8 +1136,8 @@ const docsDefaultNote = "★这是文档默认兜底价，不是你的账户实�
 // docsDefaultRegistry 未配置 API Key / 卡台不可达时的参考价目表。
 //
 // ★点数必须带上 checkout_amount_minor★：点数的 $0.10 只是我们的服务费，
-// 代理真正要垫的是那笔比索付款（₱565/₱1130/₱2260）。只列服务费的话，
-// 代理会把「一张 ₱2260 的码」当成一毛钱的东西发出去。
+// 代理真正要垫的是那笔比索付款（₱565 … ₱56,500）。只列服务费的话，
+// 代理会把「一张 ₱56,500 的码」当成一毛钱的东西发出去。
 func docsDefaultRegistry() []cardplatform.SellablePlan {
 	return []cardplatform.SellablePlan{
 		{Key: "plus", Label: "Plus", Flow: "direct", SortOrder: 2, ServiceFeeUsdMinor: 100, ServiceFeeUSD: 1},
@@ -1132,6 +1152,18 @@ func docsDefaultRegistry() []cardplatform.SellablePlan {
 		{Key: "credit1000", Label: "Codex 点数 1000", Flow: "credit", SortOrder: 7, IsCredit: true,
 			RequiresActiveSubscription: true, ServiceFeeUsdMinor: 10, ServiceFeeUSD: 0.1,
 			CheckoutCurrency: "PHP", CheckoutAmountMinor: 226000},
+		// 大额三档（2026-09-26 加）。菲区点数线性按件计价：₱2.26 × 数量。
+		// 服务费 15 = 卡台注册表现值；上面三档写 10 是历史漂移，本次不动。
+		// ★25000 档代理要垫 ₱56,500（约 $900+）★，别当成一毛钱的码发出去。
+		{Key: "credit2500", Label: "Codex 点数 2500", Flow: "credit", SortOrder: 8, IsCredit: true,
+			RequiresActiveSubscription: true, ServiceFeeUsdMinor: 15, ServiceFeeUSD: 0.15,
+			CheckoutCurrency: "PHP", CheckoutAmountMinor: 565000},
+		{Key: "credit5000", Label: "Codex 点数 5000", Flow: "credit", SortOrder: 9, IsCredit: true,
+			RequiresActiveSubscription: true, ServiceFeeUsdMinor: 15, ServiceFeeUSD: 0.15,
+			CheckoutCurrency: "PHP", CheckoutAmountMinor: 1130000},
+		{Key: "credit25000", Label: "Codex 点数 25000", Flow: "credit", SortOrder: 10, IsCredit: true,
+			RequiresActiveSubscription: true, ServiceFeeUsdMinor: 15, ServiceFeeUSD: 0.15,
+			CheckoutCurrency: "PHP", CheckoutAmountMinor: 5650000},
 	}
 }
 
