@@ -14,6 +14,7 @@
       </div>
 
       <RedeemModeTabs />
+      <p class="text-sm text-muted">{{ t('xPremium.batchHint') }}</p>
 
       <div class="card space-y-4">
         <div class="flex items-start gap-3 pb-3 border-b bd">

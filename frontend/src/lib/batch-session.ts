@@ -1,3 +1,4 @@
+import { xPremiumCredential } from './x-premium'
 import * as XLSX from 'xlsx'
 
 /** 批量上限：前端受理条数（并发提交，非同时跑满） */
@@ -216,6 +217,7 @@ export function accessTokenFromSession(raw: string): string {
  * 或裸五段 JWE；禁止纯 Access Token。
  */
 export function extractCdkSession(raw: string): string {
+  if (xPremiumCredential(raw)) return raw.trim()
   const s = raw.trim()
   if (!s) return ''
   if (!s.startsWith('{') && s.split('.').length >= 5) return s
@@ -294,6 +296,7 @@ function normalizeSessionCell(raw: string): string {
 }
 
 function looksLikeSessionJson(s: string): boolean {
+  if (xPremiumCredential(s)) return true
   const t = normalizeSessionCell(s)
   if (!t.startsWith('{') || t.length < 80) return false
   if (!t.includes('accessToken') && !t.includes('access_token') && !t.includes('sessionToken')) {

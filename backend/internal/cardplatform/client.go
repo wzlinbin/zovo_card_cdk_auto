@@ -225,8 +225,16 @@ type PlansResponse struct {
 
 // GetPlans GET /gpt-direct/plans — 实时服务费与套餐开关
 // 卡台返回 PaymentConfig：version + plans[key].serviceFeeUsdMinor
-func (c *Client) GetPlans(ctx context.Context) (*PlansResponse, error) {
-	data, err := c.doOpenAPI(ctx, http.MethodGet, "/gpt-direct/plans", nil, "")
+func (c *Client) GetPlans(ctx context.Context, products ...string) (*PlansResponse, error) {
+	product := "gpt"
+	if len(products) > 0 && products[0] == "x" {
+		product = "x"
+	}
+	path := "/gpt-direct/plans"
+	if product == "x" {
+		path += "?product=x"
+	}
+	data, err := c.doOpenAPI(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +297,29 @@ func (c *Client) GetPlans(ctx context.Context) (*PlansResponse, error) {
 		p.MinAmountMinor = jsonInt64(m, "minAmountMinor", "min_amount_minor")
 		p.MaxAmountMinor = jsonInt64(m, "maxAmountMinor", "max_amount_minor")
 		out.Plans[k] = p
+	}
+	if product == "x" {
+		all := out.Plans
+		out.Plans = map[string]PlanInfo{}
+		registry := []PlanRegistryItem{}
+		for _, entry := range out.Registry {
+			if info, ok := all["x_"+entry.Key]; ok && IsXPremiumPlan(entry.Key) {
+				info.Key = entry.Key
+				out.Plans[entry.Key] = info
+				registry = append(registry, entry)
+			}
+		}
+		out.Registry = registry
+		regions := []PaymentRegion{}
+		for _, r := range out.PaymentRegions {
+			if country, err := XPaymentCountry(r.Country); err == nil && country == r.Country {
+				regions = append(regions, r)
+			}
+		}
+		if len(regions) == 0 {
+			regions = []PaymentRegion{{Country: "JP", Currency: "JPY"}}
+		}
+		out.PaymentRegions = regions
 	}
 	return out, nil
 }
@@ -366,6 +397,7 @@ type IssuedCDK struct {
 	Plan           string `json:"plan"`
 	CodePrefix     string `json:"code_prefix"`
 	FeeAmountMinor int64  `json:"fee_amount_minor"`
+	PaymentCountry string `json:"payment_country"`
 }
 
 type IssueCDKResult struct {
@@ -506,6 +538,7 @@ type CDKListItem struct {
 	FullCode       string `json:"full_code"`
 	CodePrefix     string `json:"code_prefix"`
 	Status         string `json:"status"`
+	PaymentCountry string `json:"payment_country"`
 	FeeAmountMinor int64  `json:"fee_amount_minor"`
 	CreatedAt      string `json:"created_at"`
 }
@@ -612,6 +645,7 @@ func (c *Client) SyncUpstreamFullCodes(ctx context.Context, status, plan string,
 			out.Scanned++
 			code := it.FullCodeText()
 			if code == "" {
+				_ = db.UpdateCardplatformCDKRegion(it.ID, it.PaymentCountry)
 				out.PrefixOnly++
 				continue
 			}
@@ -620,7 +654,7 @@ func (c *Client) SyncUpstreamFullCodes(ctx context.Context, status, plan string,
 				prefix = code[:14]
 			}
 			_, existed := db.LookupCardplatformCDKCode(it.ID, prefix)
-			if err := db.SaveCardplatformCDKCodeWithStatus(it.ID, code, prefix, it.Plan, it.FeeAmountMinor, it.Status); err != nil {
+			if err := db.SaveCardplatformCDKCodeWithStatus(it.ID, code, prefix, it.Plan, it.FeeAmountMinor, it.Status, it.PaymentCountry); err != nil {
 				continue
 			}
 			if existed {
@@ -630,6 +664,7 @@ func (c *Client) SyncUpstreamFullCodes(ctx context.Context, status, plan string,
 			out.Codes = append(out.Codes, IssuedCDK{
 				ID: it.ID, Code: code, Plan: it.Plan,
 				CodePrefix: prefix, FeeAmountMinor: it.FeeAmountMinor,
+				PaymentCountry: it.PaymentCountry,
 			})
 		}
 		if page*100 >= res.Total {
@@ -833,6 +868,13 @@ func (c *Client) Preview(ctx context.Context, code, device string) (int, json.Ra
 
 func (c *Client) Preflight(ctx context.Context, body any, device string) (int, json.RawMessage, error) {
 	return c.doPublicCDK(ctx, http.MethodPost, "/preflight", body, device)
+}
+
+func (c *Client) RecoverSubscription(ctx context.Context, body any, device string) (int, json.RawMessage, error) {
+	copyClient := *c.client
+	copyClient.Timeout = 180 * time.Second
+	recoveryClient := &Client{cfg: c.cfg, client: &copyClient}
+	return recoveryClient.doPublicCDK(ctx, http.MethodPost, "/recover-subscription", body, device)
 }
 
 func (c *Client) Redeem(ctx context.Context, body any, device string) (int, json.RawMessage, error) {

@@ -886,9 +886,11 @@ curl https://zovocard.com/openapi/v1/balance -H "X-API-Key: sk_你的密鑰"
 
 ### 6.18 GPT 直充 API
 
+> **50x 套餐参数：`"plan": "pro_50x"`，产品为 `"product": "gpt"`。** 创建直充订单、发放 CDK 都使用这个值；请求字段是 `plan`，不是 `plan_type`。
+
 GPT 直充接口使用你名下的卡為 GPT 賬號開通或升級套餐。它與卡開通、卡充值是兩條獨立鏈路：
 
-- **商城直付**：沒有額外的 API / CDK 服務費。
+- **商城直付**：依目前帳號的套餐服務費設定計費，專屬價優先。
 - **開放 API 訂單**：按套餐收取 API 服務費，創建訂單時凍結，成功後結算；確定未扣款的終態會釋放。
 - **CDK**：購買或通過開放 API 發放 CDK 時預付服務費；CDK 兌換後的上游開卡、充值、訂閱實付資金由 CDK 所有者承擔。
 - GPT 上游訂閱金額不是固定美元價。先調用預檢接口取得當前地區、幣種和賬號狀態下的實時報價。
@@ -1090,6 +1092,7 @@ VIP 達標後自動開放，不需要管理員再寫入 `gpt_direct_enabled`。�
 | `plus` | Plus | **0.15 U** | 以預檢報價為準 |
 | `pro_5x` | Pro 5x | **0.15 U** | 以預檢報價為準 |
 | `pro_20x` | Pro 20x | **0.15 U** | 以預檢報價為準 |
+| `pro_50x` | **Pro 50x** | **0.15 U**（专属价以接口为准） | 以预检或升级报价为准 |
 | `pro_20x_renew` | Pro 20x 續費（綁卡檔）| **0.15 U** | **本單不扣款**，見下方說明 |
 | `credit250` | Codex 點數 250 | **0.15 U** | ₱565（按實時匯率折美元，約 $8–$13） |
 | `credit500` | Codex 點數 500 | **0.15 U** | ₱1,130（約 $16–$26） |
@@ -1152,6 +1155,14 @@ VIP 達標後自動開放，不需要管理員再寫入 `gpt_direct_enabled`。�
         "expectedAmountMinor": 98214,
         "minAmountMinor": 90000,
         "maxAmountMinor": 110000
+      },
+      "pro_50x": {
+        "key": "pro_50x",
+        "label": "Pro 50x",
+        "currency": "PHP",
+        "enabled": true,
+        "serviceFeeUsdMinor": 15,
+        "expectedAmountMinor": 2900893
       }
     },
     "registry": [
@@ -1169,6 +1180,18 @@ VIP 達標後自動開放，不需要管理員再寫入 `gpt_direct_enabled`。�
         "requires_active_subscription": false,
         "tier": 1,
         "sort_order": 20
+      },
+      {
+        "key": "pro_50x",
+        "product": "gpt",
+        "acc_plan_key": "pro_50x",
+        "label": "Pro 50x",
+        "checkout_currency": "PHP",
+        "checkout_amount_minor": 2900893,
+        "service_fee_usd_minor": 15,
+        "purchasable": true,
+        "is_credit": false,
+        "tier": 5
       }
     ]
   }
@@ -1187,10 +1210,10 @@ VIP 達標後自動開放，不需要管理員再寫入 `gpt_direct_enabled`。�
 | 地區 | 幣種 | 定價口徑 |
 | --- | --- | --- |
 | `PH` 菲律賓（預設） | PHP | 主通道，走卡段成交價快照 |
-| `US` 美國 | USD | 按國家定價 $20 / $100 / $200 |
-| `JP` 日本 | JPY | 按國家定價 ¥3,000 / ¥16,800 / ¥30,000（含稅） |
-| `CL` 智利 | CLP | 走 USD 預設價（$20 / $100 / $200） |
-| `EG` 埃及 | EGP | 走 USD 預設價（$20 / $100 / $200） |
+| `US` 美國 | USD | 按所选套餐的当地币种报价（含50x），以预检/升级返回的金额、币种和最小单位为准 |
+| `JP` 日本 | JPY | 按所选套餐的当地币种报价（含50x），以预检/升级返回的金额、币种和最小单位为准 |
+| `CL` 智利 | CLP | 按所选套餐的当地币种报价（含50x），以预检/升级返回的金额、币种和最小单位为准 |
+| `EG` 埃及 | EGP | 按所选套餐的当地币种报价（含50x），以预检/升级返回的金额、币种和最小单位为准 |
 
 > ★以介面下發為準★：可用地區清單即時讀 `GET /gpt-direct/plans` 的 `payment_regions`，別在自己這邊寫死；下單/發碼傳 `payment_country` + `payment_currency`（Claude / Grok 為美元恆價，見坑 3）。
 
@@ -1281,7 +1304,7 @@ curl -X POST https://zovocard.com/openapi/v1/gpt-direct/preflight \
 | --- | --- | --- | --- |
 | `card_id` | number | 是 | 用於支付的名下卡 ID |
 | `product` | string | 否 | `gpt`（預設）/ `claude` / `grok`。Claude / Grok 必須顯式傳 |
-| `plan` | string | 是 | GPT：`go` / `plus` / …；Claude / Grok 用 `registry[].key`，見坑 2 |
+| `plan` | string | 是 | GPT：`go` / `plus` / `pro_5x` / `pro_20x` / **`pro_50x`（50x）** / `pro_20x_renew` 及点数档；请求字段为 `plan`。Claude / Grok 见坑 2 |
 | `payment_country` | string | 否 | GPT 預設 `PH`；Claude / Grok 請傳 `US`，見坑 3 |
 | `payment_currency` | string | 否 | GPT 預設 `PHP`；Claude / Grok 請傳 `USD` |
 | `credential` | object | 是 | 與預檢相同的憑據結構；使用預檢令牌時以服務端預檢結果為準 |
@@ -1372,7 +1395,7 @@ curl -X POST https://zovocard.com/openapi/v1/gpt-direct/orders \
 
 | 欄位 | 要求與含義 |
 | --- | --- |
-| `plan` | 必填。`go`、`plus`、`pro_5x`、`pro_20x`、`pro_20x_renew`、`credit250`、`credit500`、`credit1000`、`credit2500`、`credit5000`、`credit25000`，並須仍可購買 |
+| `plan` | 必填。`go`、`plus`、`pro_5x`、`pro_20x`、`pro_50x`、`pro_20x_renew`、`credit250`、`credit500`、`credit1000`、`credit2500`、`credit5000`、`credit25000`，並須仍可購買 |
 | `count` | 預設1，建議1–200；單次最多 **200** 張 |
 | `funding_confirmed` | 必須為 `true`，確認由所有者承擔兌換資金 |
 | `payment_country` | 可選 PH / US / JP / CL / EG；依 `/gpt-direct/plans` 的 `payment_regions`，省略預設 PH |
@@ -2117,3 +2140,54 @@ app.post('/webhook', express.raw({ type: '*/*' }), (req, res) => {
 ---
 
 如需協助，請在「開發者」頁聯繫客服或加入開發者群。
+
+
+## Pro 50x：套餐参数与调用示例
+
+50x 的正式套餐键为 **`pro_50x`**。客户调用卡台接口时统一使用 `plan` 字段；`promax` 是订阅状态别名，`chatgptpromax` 是上游标识，两者均不作为本文的建单套餐参数。
+
+| 场景 | 接口 / 字段 | 值或规则 |
+| --- | --- | --- |
+| 直充建单 | `POST /openapi/v1/gpt-direct/orders` | `"product":"gpt", "plan":"pro_50x"` |
+| 发放 CDK | `POST /openapi/v1/gpt-direct/cdks` | `"plan":"pro_50x"` |
+| 查询可用套餐 | `GET /openapi/v1/gpt-direct/plans?product=gpt` | 从 `registry` 读取 `key="pro_50x"`、`purchasable` 和 `service_fee_usd_minor`；`plans.pro_50x` 为该档配置 |
+| 已有订阅升级 | `POST /openapi/v1/gpt-direct/upgrade-quotes` | 选择 `quotes[]` 中 `plan="pro_50x"` 且 `available=true` 的结果，使用该项新 `preflight_token` 和返回的付款币种建单 |
+
+50x 默认服务费为 **$0.15/单**，已配置专属 0 服务费的账号返回 0；始终以当前账号 `GET /gpt-direct/plans?product=gpt` 返回的费率为准。上游订阅实付、开卡/充值手续费及可能适用的 cs_live 附加费另计。
+
+**免费账号首次开通 50x**：先按同一地区预检，再向 `POST /openapi/v1/gpt-direct/orders` 提交。示例中的 `card_id` 须替换为当前 API 账号可用的卡，凭据及预检令牌也须替换为自己的。
+
+```json
+{
+  "product": "gpt",
+  "plan": "pro_50x",
+  "card_id": 123,
+  "credential": {
+    "mode": "session",
+    "session": "<YOUR_SESSION>"
+  },
+  "preflight_token": "<PREFLIGHT_TOKEN>",
+  "payment_country": "PH",
+  "payment_currency": "PHP",
+  "client_request_id": "merchant-pro50x-20260930-001"
+}
+```
+
+请求头使用 `X-API-Key`、`Content-Type: application/json` 和唯一 `Idempotency-Key`。网络重试保留原幂等键与 `client_request_id`；HTTP 202 仅表示受理，继续查询该订单。
+
+**发放 50x CDK**：`POST /openapi/v1/gpt-direct/cdks`。`funding_confirmed=true` 表示码主承担兑换资金；兑换时套餐从 CDK 读取，不要把一张其他套餐的码在兑换请求里改成 50x。 使用自定义品牌前缀时，50x 后缀为 `50X`（例如 `UUU50X-…`）；套餐仍以接口 `plan` 为准。
+
+```json
+{
+  "plan": "pro_50x",
+  "count": 1,
+  "funding_confirmed": true,
+  "payment_country": "PH",
+  "payment_currency": "PHP"
+}
+```
+
+已有 Go/Plus/5x/20x 订阅需要升 50x 时，使用 `POST /openapi/v1/gpt-direct/upgrade-quotes` 的 `pro_50x` 报价凭证。升级差价由该账号实时账单决定，不能用两个套餐标价相减代替。
+
+
+PH采集的50x免税价为PHP 29,008.93（2,900,893最小单位），含税展示价PHP 32,490。真实扣款以账号账单为准，服务费及开关读取套餐注册表。50x升级/非PH注资使用独立上限（默认USD 1,000，可配置），其他套餐原有上限不变。
