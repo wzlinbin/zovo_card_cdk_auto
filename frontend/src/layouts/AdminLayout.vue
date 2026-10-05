@@ -127,11 +127,10 @@ async function doLogout() {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  background-image: var(--bg-tint);
-  background-attachment: fixed;
+  /* 底色由 html 统一画（见 style.css），这里透明：否则会盖住固定氛围层，
+     原来的 background-attachment: fixed 还会让滚动每帧重绘整屏 */
+  background: transparent;
   color: var(--ink);
-  transition: background-color .3s ease, color .2s ease;
 }
 .layout-sidebar, .layout-rail {
   flex-direction: row;
@@ -261,14 +260,26 @@ async function doLogout() {
   font-weight: 700; font-size: 15px; color: var(--ink);
 }
 
-/* cyber 侧栏霓虹 */
-:global(html[data-skin='cyber']) .sidenav {
-  background: linear-gradient(180deg, #0d1524 0%, #0a101c 100%);
-  border-right-color: rgba(34, 211, 238, 0.22);
-  box-shadow: inset -1px 0 0 rgba(34, 211, 238, 0.08);
-}
-:global(html[data-skin='cyber']) .side-link.active {
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 20px rgba(34, 211, 238, 0.08);
+/* cyber 侧栏霓虹已移到 style.css：scoped 里的 :global(html[...]) .sidenav 会被编译成裸的
+   html[data-skin=cyber]{…}，把侧栏渐变刷到整个 html 上。 */
+
+/* 窄屏顶栏：品牌 + 操作一行，导航单独一行横向滑动（原来换行后压在页面内容上） */
+@media (max-width: 900px) {
+  .nav-inner { height: auto; flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
+  .nav-actions { margin-left: auto; gap: 8px; }
+  .nav-actions .admin-name { display: none; }
+  .nav-pills {
+    order: 3;
+    flex: 1 0 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, #000 88%, transparent);
+  }
+  .nav-pills::-webkit-scrollbar { display: none; }
+  .page { padding: 16px 14px; }
 }
 
 @media (max-width: 900px) {

@@ -43,10 +43,11 @@ export default {
           700: '#372c21',
           600: '#46382b',
         },
+        // 跟随当前皮肤（原来写死赤陶深褐，暗色皮肤下全靠 style.css 里同名类碰巧覆盖）
         ink: {
-          DEFAULT: '#2a2622',
-          muted: '#6f6657',
-          subtle: '#9a9183',
+          DEFAULT: 'var(--ink)',
+          muted: 'var(--ink-2)',
+          subtle: 'var(--ink-3)',
         },
       },
     },

@@ -703,9 +703,10 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   color: var(--primary);
   white-space: nowrap;
 }
-[data-issuer="one"]   { background: #eff6ff; color: #2563eb; }
-[data-issuer="three"] { background: #f0fdf4; color: #16a34a; }
-[data-issuer="four"]  { background: #fef9c3; color: #854d0e; }
+/* 渠道徽标用语义色的柔底：原来写死浅色底，暗色皮肤下是一块块亮斑 */
+[data-issuer="one"]   { background: var(--info-soft); color: var(--info); }
+[data-issuer="three"] { background: var(--good-soft); color: var(--good); }
+[data-issuer="four"]  { background: var(--warn-soft); color: var(--warn); }
 
 /* ── 规则列表 ── */
 .rules-list { display: flex; flex-direction: column; gap: 6px; }

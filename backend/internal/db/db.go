@@ -1485,17 +1485,22 @@ func UpsertCardProduct(p CardProductCache) error {
 	return err
 }
 
-// MarkCardProductsOfflineExcept 将不在 present 集合中的缓存产品标为已下线。
-// 卡台 OpenAPI /products 只返回 enabled=true 的可开产品；下架后不再出现在列表，
-// 若不在此收口，历史 VISA 等会永久显示「在线」。
-func MarkCardProductsOfflineExcept(present map[string]bool) (int, error) {
+// PruneCardProductsExcept 删除不在 present 集合中的缓存产品（含早先已标下线的）。
+//
+// 卡台对外接口（/gpt-direct/card-products、/products）只返回已上架的卡段；不再出现
+// = 已下架或对本站不可见。已下架的卡段/BIN 只能由卡台管理员看到，CDK 不再保留
+// 它的 BIN、描述等信息（原来标「已下线」继续展示，等于把下架卡 BIN 泄露给 CDK 后台）。
+// 选卡规则里仍引用它时，规则照常显示为离线（找不到产品即离线）。
+//
+// present 为空时不动：防止一次异常的空响应把整个缓存清掉。
+func PruneCardProductsExcept(present map[string]bool) (int, error) {
 	if DB == nil {
 		return 0, fmt.Errorf("db not ready")
 	}
-	if present == nil {
-		present = map[string]bool{}
+	if len(present) == 0 {
+		return 0, nil
 	}
-	rows, err := DB.Query(`SELECT product_code FROM card_product_cache WHERE enabled = 1`)
+	rows, err := DB.Query(`SELECT product_code FROM card_product_cache`)
 	if err != nil {
 		return 0, err
 	}
@@ -1506,22 +1511,16 @@ func MarkCardProductsOfflineExcept(present map[string]bool) (int, error) {
 		if err := rows.Scan(&code); err != nil {
 			return 0, err
 		}
-		code = strings.TrimSpace(code)
-		if code == "" || present[code] {
-			continue
+		if !present[strings.TrimSpace(code)] {
+			stale = append(stale, code)
 		}
-		stale = append(stale, code)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, code := range stale {
-		res, err := DB.Exec(`
-			UPDATE card_product_cache
-			SET enabled = 0, synced_at = CURRENT_TIMESTAMP
-			WHERE product_code = ? AND enabled = 1
-		`, code)
+		res, err := DB.Exec(`DELETE FROM card_product_cache WHERE product_code = ?`, code)
 		if err != nil {
 			return n, err
 		}

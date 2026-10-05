@@ -1,12 +1,10 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
-import * as ElIcons from '@element-plus/icons-vue'
+import { installElement } from './element'
 import App from './App.vue'
 import router from './router'
 import './style.css'
+import './styles/skins.css'
 import { useAuthStore } from './stores/auth'
 import { initTheme, setSiteBrand, setSkin, setTheme, type SkinId, type ThemeMode } from './theme'
 import { i18n } from './i18n'
@@ -35,12 +33,11 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 app.use(i18n)
-app.use(ElementPlus)
-for (const [name, comp] of Object.entries(ElIcons)) app.component(name, comp as any)
+installElement(app)
 
 const authStore = useAuthStore(pinia)
 authStore.restore()
 
-loadPublicSite().finally(() => {
-  app.mount('#app')
-})
+// 不等站点配置：先按本机缓存的皮肤渲染，配置返回后再原子切换（首屏不再被一次网络请求卡住）。
+app.mount('#app')
+void loadPublicSite()

@@ -1,5 +1,6 @@
 import { xPremiumCredential } from './x-premium'
-import * as XLSX from 'xlsx'
+// xlsx 约 430 kB（gzip 145 kB）：只在真正读/写 Excel 时才加载，不拖累首屏与其它页面。
+const loadXLSX = () => import('xlsx')
 
 /** 批量上限：前端受理条数（并发提交，非同时跑满） */
 export const BATCH_MAX_KEYS = 1000
@@ -585,6 +586,7 @@ export async function readWorkbookRows(file: File): Promise<unknown[][]> {
       }
     }
     try {
+      const XLSX = await loadXLSX()
       const wb = XLSX.read(text, { type: 'string', raw: false })
       const sheetName = wb.SheetNames[0]
       const sheet = wb.Sheets[sheetName]
@@ -601,7 +603,7 @@ export async function readWorkbookRows(file: File): Promise<unknown[][]> {
     return manual
   }
 
-  const buf = await file.arrayBuffer()
+  const [buf, XLSX] = await Promise.all([file.arrayBuffer(), loadXLSX()])
   const wb = XLSX.read(buf, { type: 'array', cellText: true, cellDates: false })
   const sheetName =
     wb.SheetNames.find((n) => /数据|data|session|账号|account/i.test(n)) || wb.SheetNames[0]
@@ -614,10 +616,11 @@ export async function readWorkbookRows(file: File): Promise<unknown[][]> {
   }) as unknown[][]
 }
 
-export function exportSuccessWorkbook(
+export async function exportSuccessWorkbook(
   rows: Array<[string, string, string, string]>,
   filenamePrefix = 'batch_success',
 ) {
+  const XLSX = await loadXLSX()
   const sheet = XLSX.utils.aoa_to_sheet([['邮箱', 'GPT密码', '邮箱密码', 'at'], ...rows])
   sheet['!cols'] = [{ wch: 32 }, { wch: 24 }, { wch: 24 }, { wch: 72 }]
   sheet['!autofilter'] = { ref: `A1:D${rows.length + 1}` }

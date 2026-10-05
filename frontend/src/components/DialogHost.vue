@@ -2,18 +2,16 @@
   <!-- Toast 队列 -->
   <div class="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
     <transition-group name="toast">
-      <div v-for="t in dialogState.toasts" :key="t.id"
-        class="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white shadow-lg max-w-sm break-all"
-        :class="toastBg(t.type)">
-        <span class="font-bold">{{ t.type === 'err' ? '✕' : t.type === 'warn' ? '!' : t.type === 'info' ? 'i' : '✓' }}</span>
+      <div v-for="t in dialogState.toasts" :key="t.id" class="toast" :class="`toast-${t.type}`" role="status">
+        <span class="toast-icon">{{ t.type === 'err' ? '✕' : t.type === 'warn' ? '!' : t.type === 'info' ? 'i' : '✓' }}</span>
         <span>{{ t.message }}</span>
       </div>
     </transition-group>
   </div>
 
   <!-- 弹窗 -->
-  <div v-if="d" class="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4" @click.self="onCancel">
-    <div class="card w-full max-w-md" @keydown.enter="onEnter" @keydown.esc="onCancel">
+  <div v-if="d" class="modal-mask fixed inset-0 z-[9998] flex items-center justify-center p-4" @click.self="onCancel">
+    <div class="card card-solid w-full max-w-md" role="dialog" aria-modal="true" @keydown.enter="onEnter" @keydown.esc="onCancel">
       <h3 class="text-lg font-semibold text-ink mb-2">{{ d.title }}</h3>
       <div v-if="d.message" class="text-sm text-muted whitespace-pre-line mb-4">{{ d.message }}</div>
 
@@ -22,7 +20,7 @@
 
       <div v-if="d.kind === 'select'" class="flex flex-col gap-2 mb-4">
         <button v-for="(o, i) in d.options" :key="i"
-          class="text-left px-4 py-3 rounded-lg border border-black/10 dark:border-white/10 hover:border-indigo-500 hover:bg-indigo-500/5 transition"
+          class="text-left px-4 py-3 rounded-lg border border-[color:var(--brd)] hover:border-[color:var(--primary)] hover:bg-[color:var(--primary-soft)] transition"
           @click="resolveActive(o.value)">
           <div class="text-ink font-medium">{{ o.label }}</div>
           <div v-if="o.desc" class="text-xs text-muted mt-0.5">{{ o.desc }}</div>
@@ -53,9 +51,6 @@ watch(d, async (val) => {
   }
 })
 
-function toastBg(type: string) {
-  return type === 'err' ? 'bg-red-600' : type === 'warn' ? 'bg-amber-600' : type === 'info' ? 'bg-blue-600' : 'bg-emerald-600'
-}
 function onEnter() {
   const a = d.value
   if (!a) return
@@ -70,6 +65,38 @@ function onCancel() {
 </script>
 
 <style scoped>
-.toast-enter-active, .toast-leave-active { transition: all .25s ease; }
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 24rem;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  word-break: break-all;
+  color: var(--ink);
+  background: var(--surface-solid);
+  border: 1px solid var(--brd);
+  border-left: 3px solid var(--tc);
+  box-shadow: var(--shadow);
+}
+.toast-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--tc);
+  background: color-mix(in srgb, var(--tc) 16%, transparent);
+}
+.toast-ok { --tc: var(--good); }
+.toast-err { --tc: var(--err); }
+.toast-warn { --tc: var(--warn); }
+.toast-info { --tc: var(--info); }
+.toast-enter-active, .toast-leave-active { transition: opacity .25s ease, transform .25s ease; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(20px); }
 </style>

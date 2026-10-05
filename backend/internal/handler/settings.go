@@ -26,14 +26,21 @@ var secretSettingKeys = map[string]bool{
 	// agent_swap handled specially (hash)
 }
 
+// 站点未设置时的默认外观：卡台新版（zovo）+ 夜间，与前端 theme.ts / index.html 一致。
+// 已在后台选过皮肤的站点保持原样（存了 skin 设置项就不走默认）。
+const (
+	defaultSiteSkin  = "zovo"
+	defaultThemeMode = "dark"
+)
+
 // PublicSiteConfig GET /api/v1/public/site — 用户端拉品牌/皮肤（无鉴权）
 func PublicSiteConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"installed":  db.IsInstalled(),
 		"brand_name": settingOr("brand_name", "Recharge Portal"),
 		"brand_sub":  settingOr("brand_sub", "Account Upgrade Service"),
-		"skin":       settingOr("skin", "terracotta"),
-		"theme_mode": settingOr("theme_mode", "light"),
+		"skin":       settingOr("skin", defaultSiteSkin),
+		"theme_mode": settingOr("theme_mode", defaultThemeMode),
 	})
 }
 
@@ -42,8 +49,8 @@ func AdminGetSettings(c *gin.Context) {
 	out := gin.H{
 		"brand_name": settingOr("brand_name", "Recharge Portal"),
 		"brand_sub":  settingOr("brand_sub", "Account Upgrade Service"),
-		"skin":       settingOr("skin", "terracotta"),
-		"theme_mode": settingOr("theme_mode", "light"),
+		"skin":       settingOr("skin", defaultSiteSkin),
+		"theme_mode": settingOr("theme_mode", defaultThemeMode),
 	}
 	// 非密钥可读
 	for k, isSecret := range secretSettingKeys {
@@ -97,7 +104,7 @@ func AdminPutSettings(c *gin.Context) {
 	}
 
 	allowedSkins := map[string]bool{
-		"terracotta": true, "ocean": true, "cyber": true, "forest": true, "violet": true,
+		"zovo": true, "terracotta": true, "ocean": true, "cyber": true, "forest": true, "violet": true,
 		"slate": true, "rose": true, "ember": true, "noir": true, "paper": true,
 	}
 	if body.Skin != nil {

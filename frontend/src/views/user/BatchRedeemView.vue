@@ -1,20 +1,10 @@
 <template>
-  <div class="min-h-screen py-12">
-    <div class="max-w-3xl mx-auto px-6">
-      <div class="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <router-link to="/" class="app-link mb-4 inline-block text-sm">{{ t('common.back') }}</router-link>
-          <h1 class="text-3xl font-bold text-ink mb-1">{{ t('batch.title') }}</h1>
-          <p class="text-muted text-sm">{{ t('batch.subtitle') }}</p>
-        </div>
-        <div class="flex items-center gap-3">
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </div>
+  <div class="u-page">
+    <UserPageHeader :eyebrow="t('hero.batchEyebrow')" :title="t('batch.title')" :subtitle="t('batch.subtitle')" />
+    <div class="u-main max-w-3xl">
 
       <RedeemModeTabs />
-      <p class="text-sm text-muted">{{ t('xPremium.batchHint') }}</p>
+      <p class="hint-line text-sm text-muted mb-3">{{ t('xPremium.batchHint') }}</p>
 
       <div class="card space-y-4">
         <div class="flex items-start gap-3 pb-3 border-b bd">
@@ -341,8 +331,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import LanguageToggle from '../../components/LanguageToggle.vue'
-import ThemeToggle from '../../components/ThemeToggle.vue'
+import UserPageHeader from '../../components/UserPageHeader.vue'
 import RedeemModeTabs from '../../components/RedeemModeTabs.vue'
 import ExcelImportBlock from '../../components/ExcelImportBlock.vue'
 import {
@@ -1115,7 +1104,7 @@ async function handleAutoSubmitAll() {
   autoSubmitting.value = false
 }
 
-function exportBatchSuccess() {
+async function exportBatchSuccess() {
   const ok = items.value.filter((i) => i.status === 'success')
   if (!ok.length) {
     sessionError.value = '本批尚无成功记录'
@@ -1123,9 +1112,13 @@ function exportBatchSuccess() {
   }
   sessionError.value = ''
   const part = (value: string) => String(value || '').replace(/[\r\n]+/g, ' ').trim()
-  exportSuccessWorkbook(
-    ok.map((i) => [part(i.email), part(i.gptPassword), part(i.emailPassword), part(i.accessToken)]),
-  )
+  try {
+    await exportSuccessWorkbook(
+      ok.map((i) => [part(i.email), part(i.gptPassword), part(i.emailPassword), part(i.accessToken)]),
+    )
+  } catch {
+    sessionError.value = '导出失败，请重试'
+  }
 }
 
 function resetAll() {

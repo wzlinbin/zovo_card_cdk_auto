@@ -61,6 +61,8 @@ if [[ -x $REMOTE_DIR/cdk-recharge ]]; then
   cp -a $REMOTE_DIR/cdk-recharge $REMOTE_DIR/cdk-recharge.bak.\$(date +%Y%m%d%H%M%S)
 fi
 tar -xzf /tmp/cdk-bundle.tgz -C $REMOTE_DIR
+# 解包只覆盖不删除：旧构建留下的 .map 会一直挂在公网 /assets 下（等于公开源码），这里清掉
+find $REMOTE_DIR/web/assets -maxdepth 1 -name '*.map' -delete 2>/dev/null || true
 chmod +x $REMOTE_DIR/cdk-recharge
 if [[ ! -f $REMOTE_DIR/app.env ]]; then
   cat > $REMOTE_DIR/app.env <<EOF
