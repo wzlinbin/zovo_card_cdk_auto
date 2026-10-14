@@ -1,4 +1,5 @@
 import { isXPremiumPlan } from './x-premium'
+import { grokBarePlan, grokPlanLabel, isGrokPlan } from './grok'
 // 档位判定：可读名 + 「账号是否已满足该档」（兑换前的重复购买闸）。
 //
 // ★为什么抽成独立模块★
@@ -23,13 +24,15 @@ export const FLOW_CARD_ATTACH = 'card_attach'
 export function isCardAttachPlan(plan: string, planFlow?: string): boolean {
   const flow = String(planFlow || '').trim().toLowerCase()
   if (flow) return flow === FLOW_CARD_ATTACH
-  return String(plan || '').trim().toLowerCase() === 'pro_20x_renew'
+  return ['pro_20x_renew', 'pro_5x_renew'].includes(String(plan || '').trim().toLowerCase())
 }
 
 /** 档位可读名。续费档必须排在 'pro' 兜底之前，否则显示成「Pro 20x」看不出是续费。 */
 export function planLabel(value: string): string {
   const n = String(value || 'free').trim().toLowerCase()
+  if (isGrokPlan(n)) return grokPlanLabel(n)
   if (isXPremiumPlan(n)) return 'X ' + n.replace(/^x_/, '').replace('premium_plus', 'Premium+').replace('premium', 'Premium').replace('basic', 'Basic').replace('_monthly', ' / month').replace('_yearly', ' / year')
+  if (n === 'pro_5x_renew') return 'Pro 5x 续费'
   if (n === 'pro_20x_renew' || n.includes('renew')) return 'Pro 20x 续费'
   if (n.includes('promax') || n === 'pro_50x') return 'Pro 50x'
   if (n.includes('prolite') || n.includes('5x') || n === 'pro_5x') return 'Pro 5x'
@@ -49,6 +52,8 @@ export function planSatisfied(currentPlan: string, requestedPlan: string, planFl
   const current = String(currentPlan || '').trim().toLowerCase()
   const req = String(requestedPlan || '').trim().toLowerCase()
   if (isXPremiumPlan(req)) return current.startsWith('x_') && current !== 'x_free'
+  // Grok 四档（Lite / SuperGrok / Plus / Heavy）与月/年付是并列商品，不存在「更高档已满足」，只认完全相同。
+  if (isGrokPlan(req)) return !!current && grokBarePlan(current) === grokBarePlan(req)
   if (current.startsWith('x_')) return false
   if (isCardAttachPlan(req, planFlow)) return false
   const currentRank =
