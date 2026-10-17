@@ -139,6 +139,7 @@ func setupRoutes(r *gin.Engine) {
 		// 卡台 CDK 公开兑换 BFF + 实时服务费展示
 		pubCDK := api.Group("/public/cdk")
 		{
+			pubCDK.POST("/submit", handler.PublicCDKSubmit)
 			pubCDK.GET("/plans", handler.PublicCDKPlans)
 			pubCDK.POST("/preview", handler.PublicCDKPreview)
 			pubCDK.POST("/preflight", handler.PublicCDKPreflight)
