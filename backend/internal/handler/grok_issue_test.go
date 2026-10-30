@@ -35,17 +35,17 @@ func TestGrokIssueUsesGrokCatalogueAndPrefixedPlan(t *testing.T) {
 			if r.URL.Query().Get("product") != "grok" {
 				t.Error("Grok issue fetched another catalogue")
 			}
-			w.Write([]byte(`{"code":0,"data":{"version":1,"plans":{"grok_monthly":{"enabled":true,"currency":"USD"}},"registry":[{"key":"monthly","label":"SuperGrok"}]}}`))
+			w.Write([]byte(`{"code":0,"data":{"version":1,"plans":{"grok_premium_monthly":{"enabled":true,"currency":"USD"}},"registry":[{"key":"premium_monthly","label":"Grok Premium 月付"}]}}`))
 		case "/openapi/v1/gpt-direct/cdks":
 			var b map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 				t.Error(err)
 			}
-			if b["plan"] != "grok_monthly" || b["payment_country"] != "US" {
+			if b["plan"] != "grok_premium_monthly" || b["payment_country"] != "US" {
 				t.Errorf("wrong Grok issue parameters %v", b)
 			}
 			issued++
-			w.Write([]byte(`{"code":0,"data":{"requested":1,"issued":[{"id":1,"code":"ZC-FAKE-TEST-GROK-CODE","plan":"monthly","payment_country":"US"}]}}`))
+			w.Write([]byte(`{"code":0,"data":{"requested":1,"issued":[{"id":1,"code":"ZC-FAKE-TEST-GROK-CODE","plan":"premium_monthly","payment_country":"US"}]}}`))
 		default:
 			t.Errorf("unexpected endpoint %s", r.URL.Path)
 			w.WriteHeader(404)
@@ -62,8 +62,9 @@ func TestGrokIssueUsesGrokCatalogueAndPrefixedPlan(t *testing.T) {
 	r := gin.New()
 	r.POST("/issue", CardPlatformIssueCDKs)
 	for _, body := range []string{
-		`{"plan":"monthly","product":"grok","count":1,"funding_confirmed":true,"payment_country":"PH"}`,
-		`{"plan":"grok_monthly","count":1,"funding_confirmed":true}`, // 老前端不传 product：按档位推断
+		`{"plan":"premium_monthly","product":"grok","count":1,"funding_confirmed":true,"payment_country":"PH"}`,
+		`{"plan":"grok_premium_monthly","count":1,"funding_confirmed":true}`, // 老前端不传 product：按带前缀的档位推断
+		`{"plan":"grok_monthly","count":1,"funding_confirmed":true}`,         // 改名前的旧键：换成 premium_monthly
 	} {
 		req := httptest.NewRequest("POST", "/issue", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -73,7 +74,7 @@ func TestGrokIssueUsesGrokCatalogueAndPrefixedPlan(t *testing.T) {
 			t.Fatalf("Grok issue failed %d %s", w.Code, w.Body.String())
 		}
 	}
-	if issued != 2 {
+	if issued != 3 {
 		t.Fatalf("issued %d", issued)
 	}
 }
@@ -82,6 +83,9 @@ func TestIssueProductKeepsGPTDefault(t *testing.T) {
 	cases := map[[2]string]string{
 		{"", "plus"}: "gpt", {"", "pro_20x_renew"}: "gpt", {"", "basic_monthly"}: "x",
 		{"", "heavy_yearly"}: "grok", {"gpt", "plus"}: "gpt", {"bogus", "plus"}: "gpt",
+		// 裸 premium_* 同时是 X 和 Grok 的键：没有 product 时归 X；带 grok_ 前缀才是 Grok
+		{"", "premium_monthly"}: "x", {"", "grok_premium_monthly"}: "grok", {"", "super_monthly"}: "grok",
+		{"grok", "premium_monthly"}: "grok",
 	}
 	for in, want := range cases {
 		if got := issueProduct(in[0], in[1]); got != want {

@@ -1,30 +1,40 @@
 // Grok 卡密：档位识别 + 登录态（grok.com 的 sso cookie）规范化。
 //
-// ★卡台预览只回裸档位★（monthly / plus_yearly …，不带 grok_ 前缀，也不回 product），
-// 所以只能按档位键认产品。这些键与 GPT（plus / pro_20x …）、X（premium_monthly …）互不重叠。
+// 卡台预览回裸档位（premium_monthly / plus_yearly …，不带 grok_ 前缀）；新版卡台另回 product。
+// ★2026-10-19 改名★（对齐 xAI 现行 Plus / Premium / Super / Ultra）后，裸 premium_monthly 同时是
+// X Premium 的键——有 product 时调用方先补成 grok_premium_monthly 再判；没有时 X 优先（见 plan.ts）。
+// 旧键 lite / heavy / monthly / yearly 仍认，显示为新名。
 //
 // ★Grok 不产预检票★：预检只查账号状态，不回 preflight_token；兑换时改为直接带登录态
 // credential（卡台按码上的产品分流，GPT / X 码仍必须带 preflight_token）。
 
-const GROK_PLAN = /^(?:grok_)?(?:(?:lite|plus|heavy)_)?(?:monthly|yearly)$/
+// 带 grok_ 前缀时认全部四档；裸键不认 premium_*（归 X）。
+// ★2026-10-24 Grok 专属半价档★：grok_<tier>_monthly_half（严格半价,发码给顾客用),只在带前缀时认 _half。
+const GROK_PLAN = /^(?:grok_(?:(?:plus|premium|super|ultra|lite|heavy)_)?(?:monthly|yearly)(?:_half)?|(?:(?:plus|super|ultra|lite|heavy)_)?(?:monthly|yearly))$/
 
 export function isGrokPlan(value: string): boolean {
   return GROK_PLAN.test(String(value || '').trim().toLowerCase())
 }
 
-/** 裸档位（去掉 grok_ 前缀），用于和预检回来的 currentPlan 比对。 */
-export function grokBarePlan(value: string): string {
-  return String(value || '').trim().toLowerCase().replace(/^grok_/, '')
+// 改名前的旧裸键 → 新裸键。★不含 plus_*★：它现在就是新键（$8 的 Grok Plus）。
+const LEGACY: Record<string, string> = {
+  lite_monthly: 'plus_monthly', lite_yearly: 'plus_yearly',
+  monthly: 'premium_monthly', yearly: 'premium_yearly',
+  heavy_monthly: 'ultra_monthly', heavy_yearly: 'ultra_yearly',
 }
 
-const TIER_LABEL: Record<string, string> = { lite: 'SuperGrok Lite', plus: 'SuperGrok Plus', heavy: 'SuperGrok Heavy' }
+/** 裸档位（去掉 grok_ 前缀、旧键换新键），用于和预检回来的 currentPlan 比对。 */
+export function grokBarePlan(value: string): string {
+  const bare = String(value || '').trim().toLowerCase().replace(/^grok_/, '')
+  return LEGACY[bare] || bare
+}
+
+const TIER_LABEL: Record<string, string> = { plus: 'Plus', premium: 'Premium', super: 'Super', ultra: 'Ultra' }
 
 export function grokPlanLabel(value: string): string {
-  const bare = grokBarePlan(value)
-  const m = bare.match(/^(?:(lite|plus|heavy)_)?(monthly|yearly)$/)
+  const m = grokBarePlan(value).match(/^(plus|premium|super|ultra)_(monthly|yearly)(_half)?$/)
   if (!m) return value
-  const tier = m[1] ? TIER_LABEL[m[1]] : 'SuperGrok'
-  return `Grok ${tier} / ${m[2] === 'yearly' ? '年' : '月'}`
+  return `Grok ${TIER_LABEL[m[1]]} / ${m[2] === 'yearly' ? '年' : '月'}${m[3] ? ' 半价' : ''}`
 }
 
 const SSO_COOKIE = /(?:^|;\s*)sso(?:-rw)?=[^;\s]+/

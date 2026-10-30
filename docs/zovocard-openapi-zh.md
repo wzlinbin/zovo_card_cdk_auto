@@ -911,7 +911,7 @@ GPT 直充接口使用你名下的卡為 GPT 賬號開通或升級套餐。它�
 **Grok 憑證從哪來（不是帳號密碼，也不是 X 綁定）**
 
 Grok 直充要的是 **grok.com 登入後的 `sso` cookie**，通常是以 `eyJ` 開頭的 JWT。
-它**不是** x.ai 帳號密碼、**不是** SuperGrok Heavy 頁上「關聯 X 帳戶領取 Premium+」那一步、
+它**不是** x.ai 帳號密碼、**不是** Grok Ultra 頁上「關聯 X 帳戶領取 Premium+」那一步、
 也**不是** ChatGPT Session / Claude `sk-ant-…`。
 
 1. 瀏覽器打開 [https://grok.com](https://grok.com) 並登入。
@@ -934,10 +934,15 @@ Grok 的預檢只校驗登入態、查當前訂閱，**不產預檢票**；建�
 | `claude` | `pro` | Claude Pro | $20 | **2 U** |
 | `claude` | `max_5x` | Claude Max 5x | $100 | **8 U** |
 | `claude` | `max_20x` | Claude Max 20x | $200 | **10 U** |
-| `grok` | `lite_monthly` / `lite_yearly` | SuperGrok Lite | $10 / $100 | **1 U** |
-| `grok` | `monthly` / `yearly` | SuperGrok | $30 / $300 | **1 U** |
-| `grok` | `plus_monthly` / `plus_yearly` | SuperGrok Plus | $100 / $1,000 | **1 U** |
-| `grok` | `heavy_monthly` / `heavy_yearly` | SuperGrok Heavy | $300 / $3,000 | **1 U** |
+| `grok` | `plus_monthly` / `plus_yearly` | Grok Plus | $8 / $80 | **1 U** |
+| `grok` | `premium_monthly` / `premium_yearly` | Grok Premium | $30 / $300 | **1 U** |
+| `grok` | `super_monthly` / `super_yearly` | Grok Super | $100 / $1,000 | **1 U** |
+| `grok` | `ultra_monthly` / `ultra_yearly` | Grok Ultra | $200 / $2,000 | **1 U** |
+
+> **2026-10-19 Grok 檔位改名**：對齊 x.ai 現行 Plus / Premium / Super / Ultra 四檔。舊鍵 `lite_*` / `monthly` / `yearly` / `heavy_*`
+> 仍可傳，服務端自動換成 `plus_*` / `premium_*` / `ultra_*`。★但 `plus_monthly` / `plus_yearly` 現在是 $8 的 Grok Plus★；
+> 原 $100 那檔（舊 `plus_*`）已改為 `super_monthly` / `super_yearly`，原本用 `plus_*` 買 $100 檔的呼叫方必須改傳 `super_*`。
+> CDK 發碼時 Grok 一律帶 `grok_` 前綴（如 `grok_premium_monthly`），裸 `premium_monthly` 不會被當成 Grok。
 
 > **以 `GET /gpt-direct/plans?product=…` 的即時回應為準**：上表是撰寫時的設定，
 > 管理員隨時可改價或停用某一檔。Claude / Grok 的價讀 `registry[].checkout_amount_minor`
@@ -961,7 +966,7 @@ Grok 的預檢只校驗登入態、查當前訂閱，**不產預檢票**；建�
 
 同理，`GET /gpt-direct/plans?product=<未知值>` 會回傳**全部三個產品的所有檔位**
 （且 `registry` 為空陣列），而不是報錯。看到 `plans` 裡同時出現
-`plus` 和 `claude_pro`、`grok_monthly`，說明你的 `product` 沒生效。
+`plus` 和 `claude_pro`、`grok_premium_monthly`，說明你的 `product` 沒生效。
 
 **坑 2：`plans` 的鍵和 `registry[].key` 不一樣——只有 GPT 一致。**
 
@@ -969,7 +974,7 @@ Grok 的預檢只校驗登入態、查當前訂閱，**不產預檢票**；建�
 | --- | --- | --- | --- |
 | `gpt` | `plus` | `plus` | `plus`（兩者相同） |
 | `claude` | `claude_pro` | `pro` | **`pro`** |
-| `grok` | `grok_lite_monthly` | `lite_monthly` | **`lite_monthly`** |
+| `grok` | `grok_plus_monthly` | `plus_monthly` | **`plus_monthly`** |
 
 Claude / Grok 的 `plans` 鍵帶產品前綴，`registry` 裡不帶。
 **下單的 `plan` 取 `registry[].key`**（即不帶前綴的那個）。
@@ -1029,16 +1034,16 @@ curl -X POST https://zovocard.com/openapi/v1/gpt-direct/orders \
 ```
 
 ```bash
-# 取 Grok 檔位（plan 用 registry[].key，例如 monthly = SuperGrok 月付）
+# 取 Grok 檔位（plan 用 registry[].key，例如 premium_monthly = Grok Premium 月付）
 curl -H "X-API-Key: sk_你的金鑰" \
   "https://zovocard.com/openapi/v1/gpt-direct/plans?product=grok"
 
-# 下一筆 SuperGrok 月付。session 填 grok.com 的 sso cookie
+# 下一筆 Grok Premium 月付。session 填 grok.com 的 sso cookie
 curl -X POST https://zovocard.com/openapi/v1/gpt-direct/orders \
   -H "X-API-Key: sk_你的金鑰" -H "Content-Type: application/json" \
   -d '{
     "product": "grok",
-    "plan": "monthly",
+    "plan": "premium_monthly",
     "payment_country": "US",
     "payment_currency": "USD",
     "card_id": 12345,

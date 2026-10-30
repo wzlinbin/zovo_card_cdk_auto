@@ -19,7 +19,7 @@
         <input v-model="code" class="input mono" placeholder="SXC-XXXX-XXXX-XXXX-XXXX" @keyup.enter="doPreview" />
         <div v-if="error" class="alert alert-error">{{ error }}</div>
         <div v-if="previewInfo" class="rounded-xl bg-soft p-4 text-sm space-y-1">
-          <div>套餐：<b>{{ previewInfo.plan || previewInfo.plan_type || '—' }}</b></div>
+          <div>套餐：<b>{{ targetPlan ? planLabel(targetPlan) : '—' }}</b></div>
           <div class="text-muted">{{ previewInfo.message || '码有效，可继续' }}</div>
         </div>
         <button class="btn-primary w-full" :disabled="busy" @click="doPreview">{{ busy ? '校验中…' : '预览 / 下一步' }}</button>
@@ -70,7 +70,11 @@
             </div>
             <div>
               <dt>当前套餐</dt>
-              <dd>{{ planLabel(account.currentPlan) }}</dd>
+              <dd>{{ planLabel(isGrok && account.currentPlan ? 'grok_' + String(account.currentPlan).replace(/^grok_/i, '') : account.currentPlan) }}</dd>
+            </div>
+            <div v-if="isGrok && account.xSubscriptionType">
+              <dt>X 订阅等级</dt>
+              <dd>{{ account.xSubscriptionType }}</dd>
             </div>
             <div>
               <dt>订阅状态</dt>
@@ -254,6 +258,7 @@ const account = ref({
   checked: false,
   email: '',
   currentPlan: '',
+  xSubscriptionType: '', // Grok：X 订阅等级(Premium/…)，首月半价资格来源
   subscriptionHasActive: null as boolean | null,
   subscriptionActiveUntil: '',
   canPurchaseAt: '',
@@ -390,10 +395,15 @@ watch(
 
 const resultPretty = computed(() => JSON.stringify(resultBody.value, null, 2))
 
-const targetPlan = computed(() =>
-  String(previewInfo.value?.plan || previewInfo.value?.plan_type || '').toLowerCase(),
-)
-const isGrok = computed(() => isGrokPlan(targetPlan.value))
+const targetPlan = computed(() => {
+  const plan = String(previewInfo.value?.plan || previewInfo.value?.plan_type || '').toLowerCase()
+  // 新版卡台预览带 product：Grok / X 补上产品前缀再判，裸 premium_monthly 两家都有（2026-10-19 Grok 改名）。
+  const product = String(previewInfo.value?.product || '').toLowerCase()
+  if (plan && product === 'grok' && !plan.startsWith('grok_')) return 'grok_' + plan
+  if (plan && product === 'x' && !plan.startsWith('x_')) return 'x_' + plan
+  return plan
+})
+const isGrok = computed(() => isGrokPlan(targetPlan.value) && !isXPremiumPlan(targetPlan.value))
 // GPT / X：必须有预检票；Grok：预检通过且没有阻塞项即可。
 const canRedeem = computed(() => isGrok.value ? !!grokSession.value && !grokBlockingReason.value : !!preflightToken.value)
 
@@ -535,6 +545,7 @@ function applyAccountFromPreflight(data: any) {
     checked: true,
     email: String(body.email || body.account_email || ''),
     currentPlan: String(body.currentPlan || body.current_plan || body.plan || ''),
+    xSubscriptionType: String(body.x_subscription_type || ''),
     subscriptionHasActive:
       typeof body.subscription_has_active === 'boolean' ? body.subscription_has_active : null,
     subscriptionActiveUntil: String(body.subscription_active_until || ''),
@@ -772,7 +783,7 @@ async function doPreview() {
     // 兼容多种返回结构
     redemptionToken.value = data.redemption_token || data.data?.redemption_token || data.token || ''
     previewInfo.value = data.data || data
-    if (isXPremiumPlan(String(previewInfo.value?.plan || '')) || isGrokPlan(String(previewInfo.value?.plan || ''))) credMode.value = 'session'
+    if (isXPremiumPlan(targetPlan.value) || isGrokPlan(targetPlan.value)) credMode.value = 'session'
     if (!redemptionToken.value) {
       // 有的实现把 token 放在顶层其它字段
       error.value = '未返回 redemption_token，请检查卡台 Base 配置'
